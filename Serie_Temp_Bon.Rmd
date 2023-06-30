@@ -1,0 +1,970 @@
+---
+title: "Serie_Temp"
+author: "Patrick"
+date: "2023-02-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+                             #############################################################
+######################################################### Exercice 1 ###############################################################
+                             ##############################################################
+
+
+
+```{r}
+library(dygraphs) # Pour les graphiques dygraph
+library(forecast) # Pour les modèles SARIMA (Arima et checkresiduals)
+library(ggplot2) # Pour les graphiques ggplot
+library(latex2exp)
+library(dplyr)
+library(lubridate)
+library(caschrono)
+```
+
+
+```{r}
+setwd("C:/Users/pkamga/Documents/Doc_Privé/Serie_Temp")
+```
+
+
+######## Exercice 1 ##################
+
+```{r}
+## Chragement de la base de données
+
+df_beer <- read.table("C:/Users/pkamga/Documents/Doc_Privé/Serie_Temp/beer.txt", quote="\"", comment.char="")
+
+df_beer$time=seq.Date(from = as.Date("1956-01-01"), to = as.Date("1991-02-01"),by="month")
+
+df_beer_1970 = df_beer %>% filter(time>=as.Date("1970-01-01"))
+
+#df_beer_1970_train = df_beer_1970 %>% filter(time<as.Date("1988-02-01"))
+
+#df_beer_1970_test = df_beer_1970 %>% filter(time>=as.Date("1988-02-01"))
+
+df_ts = ts(df_beer$V1,start = c(1970,1),end = c(1991,2), frequency = 12)
+
+```
+
+
+
+```{r}
+## Visualisation de la série temporelle
+
+plot(log(df_ts))
+```
+```{r}
+## Visualisation de la série
+
+dygraph(df_ts)
+```
+
+
+
+```{r}
+## Visualisation du log de la série
+
+dygraph(log(df_ts))
+```
+
+
+```{r}
+
+ACF_PACF <- function(serie,
+                     nlag=floor(length(serie)/4),
+                     niveau=0.95,
+                     grad=2,
+                     titre=NULL,
+                     affich_ACF=TRUE,
+                     affich_PACF=TRUE){
+  
+  acf_pacf <- data.frame(h=1:nlag,
+                         ACF=acf(serie,lag.max=nlag,plot=FALSE)$acf[-1],
+                         PACF=pacf(serie,lag.max=nlag,plot=FALSE)$acf)
+  
+  acf_pacf_IC <- data.frame(h=-1:nlag+1,
+                            IC_min=-qnorm((1-niveau)/2)/sqrt(length(serie)),
+                            IC_max=qnorm((1-niveau)/2)/sqrt(length(serie)))
+  
+  ACF <- ggplot()+
+    geom_bar(data=acf_pacf,aes(x=h,y=ACF),stat="identity",fill="steelblue",width=0.5)+
+    geom_ribbon(data=acf_pacf_IC,aes(x=h,ymin=IC_min,ymax=IC_max),fill="red",alpha=0.2)+
+    scale_x_continuous(limits=c(-1,nlag+1),breaks=seq(from=0,to=nlag,by=grad))+
+    scale_y_continuous(limits=c(-1,1))+
+    labs(x="h",y="ACF",title=titre)+
+    theme_bw()
+  
+  PACF <- ggplot()+
+    geom_bar(data=acf_pacf,aes(x=h,y=PACF),stat="identity",fill="steelblue",width=0.5)+
+    geom_ribbon(data=acf_pacf_IC,aes(x=h,ymin=IC_min,ymax=IC_max),fill="red",alpha=0.2)+
+    scale_x_continuous(limits=c(-1,nlag+1),breaks=seq(from=0,to=nlag,by=grad))+
+    scale_y_continuous(limits=c(-1,1))+
+    labs(x="h",y="PACF",title=titre)+
+    theme_bw()
+  
+  if (affich_ACF==TRUE){
+    print(ACF)
+  }
+  if (affich_PACF==TRUE){
+    print(PACF)
+  }
+  
+  invisible(list(acf_pacf=acf_pacf,
+                 ACF=ACF,
+                 PACF=PACF))
+}
+```
+
+```{r}
+
+test_signif <- function(model){
+  
+  t <- model$coef/sqrt(diag(model$var.coef))
+  
+  pval <- (1-pnorm(abs(t)))*2
+  
+  print("Test statistic")
+  print(t)
+  print("p-value")
+  print(pval)
+}
+
+test_res <- function(model,
+                     kmin=6,
+                     kmax=model$nobs/4,
+                     kby=6,
+                     plot=TRUE){
+  
+  out <- data.frame(k=integer(),
+                    p_valeur=double())
+  
+  for (k in seq(from=kmin,to=kmax,by=kby)){
+    
+    test <- Box.test(model$residuals,
+                     lag=k,
+                     type="Ljung-Box",
+                     fitdf=length(model$coef))
+    
+    p_valeur <- test$p.value
+    
+    out <- rbind(out,data.frame(k=k,p_valeur=round(p_valeur,digits=3)))
+  }
+  
+  if (plot==TRUE){
+    checkresiduals(model,test=FALSE)
+  }
+  
+  print("Ljung-Box test for residuals")
+  print(out)
+}
+```
+
+
+```{r}
+
+## Affichage de l'ACF et PACF de la série
+
+df_train = log(df_ts)   
+
+ACF_PACF(serie=df_train,
+         nlag=40,
+         titre="ACF beer",
+         affich_PACF=TRUE)
+
+acf(df_train,lag.max = 40)
+
+```
+
+```{r}
+
+## diffrence de la série et visualisation de l'ACF et de PACF
+
+df_train_1 = diff(df_train,lag=1,differences = 1)
+
+ACF_PACF(serie=df_train_1,
+         nlag=40,
+         titre="ACF beer",
+         affich_PACF=TRUE)
+
+acf(df_train_1,lag.max = 40)
+```
+
+
+
+```{r}
+## Visualisation de la série différentiée
+
+dygraph(df_train_1)
+```
+
+
+
+```{r}
+
+## Visualisation de la série différentié à l'ordre 12
+
+df_train_2 = diff(df_train_1,lag=12,differences = 1)
+
+ACF_PACF(serie=df_train_2,
+         nlag=40,
+         titre="ACF beer",
+         affich_PACF=TRUE)
+
+plot(acf(df_train_2,lag.max = 40,plot=FALSE),ylim=c(-1,1))
+```
+```{r}
+## Création du modèle SARIMA
+
+model0 = Arima(df_train_2,order=c(2,0,2),list(order=c(2,3,2),period=12),include.mean=TRUE,method="CSS-ML")
+
+summary(model0)
+
+test_signif(model0)
+
+#test_res(model0)
+
+Box.test.2(model0$residuals,nlag=c(6,12,18,24,30,36),type="Ljung-Box",decim=5)
+
+shapiro.test(model0$residuals)
+```
+
+
+
+```{r}
+## Modèle SARIma
+
+model3 = Arima(df_train_2,order=c(0,1,1),list(order=c(0,1,1),period=12),include.mean=TRUE,method="CSS-ML")
+
+summary(model3)
+
+test_signif(model3)
+
+#test_res(model3)
+Box.test.2(model3$residuals,nlag=c(6,12,18,24,30,36),type="Ljung-Box",decim=5)
+
+shapiro.test(model3$residuals)
+```
+
+
+```{r}
+## Visualisation de la prédiction
+
+pred_model0=forecast(model0,h=12,level=95)
+
+pred=exp(pred_model0$mean)
+
+pred_l=ts(exp(pred_model0$lower),start=c(1991,1),frequency=12)
+
+pred_u=ts(exp(pred_model0$upper),start=c(1991,1),frequency=12)
+
+ts.plot(exp(pred_model0$x),pred,pred_l,pred_u,xlab="t",ylab="Beer",col=c(1,2,3,3),lty=c(1,1,2,2),lwd=c(1,3,2,2))
+```
+
+
+
+
+```{r}
+auto.arima(df_train_2, trace=TRUE, test="kpss", ic="bic")
+```
+
+
+
+
+```{r}
+plot(pred,type='l')
+par(new=TRUE)
+plot(pred_u,col="red",type="l",lwd="1")
+par(new=TRUE)
+plot(pred_l,col="green",type="l",lwd="1")
+#lines(pred_u,col='yellow',type='l')
+```
+
+
+```{r}
+## Entrainement du modèle sélectionné
+
+df_serie_train=window(df_ts,end=c(1988,12))
+
+df_serie_train_log=log(df_serie_train)
+
+df_serie_test=window(df_ts,start=c(1989,1))
+
+model0train=Arima(df_serie_train_log,order=c(2,0,2),list(order=c(2,3,2),period=12),include.mean=FALSE,method="CSS-ML")
+
+summary(model0train)
+
+t_stat(model0train)
+
+Box.test.2(model0train$residuals,nlag=c(6,12,18,24,30,36),type="Ljung-Box",decim=5)
+
+shapiro.test(model0train$residuals)
+```
+```{r}
+## Visualisation de la série test et la série prédite
+
+model3_train=forecast(model3tronc,h=26,level=95)
+
+pred_train=exp(model3_train$mean)
+
+left_train=ts(exp(model3_train$lower),start=c(1989,1),frequency=12)
+
+right_train=ts(exp(model3_train$upper),start=c(1989,1),frequency=12)
+
+ts.plot(df_serie_test,pred_train,left_train,right_train,xlab="time",ylab="Beer",col=c(1,2,3,3),lty=c(1,1,2,2),lwd=c(3,3,2,2))
+
+legend("topleft",legend=c("Prod","Prod_pred"),col=c(1,2,3,3),lty=c(1,1),lwd=c(3,3))
+
+legend("topright",legend=c("int95%_inf","int95%_sup"),col=c(3,3),lty=c(2,2),lwd=c(2,2))
+```
+
+```{r}
+
+## On calcule le RMSE et le MAPE
+
+rmse=sqrt(mean((df_serie_test-pred_train)^2))
+
+rmse
+
+mape=mean(abs(1-pred_train/df_serie_test))*100
+
+mape
+```
+                            #######################################################################
+####################################################### Exercice 2 ##########################################################
+                            #######################################################################
+                            
+
+```{r}
+## Chargement des librairies
+
+library(corrplot)
+library(dendextend)
+library(randomForest)
+library(gbm)
+library(ipred)
+library(rpart)
+library(e1071)
+ library(caret)
+library(xgboost)
+library(superml)
+```
+
+
+```{r}
+## Chragement du fichier
+
+df_ozone <- read.table("C:/Users/pkamga/Documents/Doc_Privé/Serie_Temp/ozone_complet.txt", quote="\"", comment.char="",sep = ";")
+```
+
+```{r}
+ ## Nombre de valeur manquantes
+
+sum(is.na(df_ozone))
+```
+```{r}
+## Suppression des valeurs manquantes
+
+## Séparation en fichier test et d'apprentissage
+
+df_ozone_na = df_ozone %>% na.omit()
+
+row.names(df_ozone_na) = as.Date(row.names(df_ozone_na),format = '%Y%m%d')
+
+df_ozone_na_train = df_ozone_na %>% filter(row.names(df_ozone_na)<=as.Date("2001-12-31"))
+
+df_ozone_na_test = df_ozone_na %>% filter(row.names(df_ozone_na)>=as.Date("2002-01-01"))
+```
+
+
+```{r}
+## Visualisation de la matrice de corrélation 
+
+corrplot(cor(df_ozone_na_train))
+```
+```{r}
+
+## clustering de variable
+
+corr = cor(df_ozone_na_train)
+
+distance = as.dist(1-abs(corr))
+
+cluster = hclust(distance, method = 'complete')
+
+clust = color_branches(cluster,h=0.3)
+
+plot(clust)
+
+abline(h=0.3,col='red')
+```
+
+les variables T9,T12,T15,T18 sont correlées à plus de 0.7, donc on choisira une seule entre ces variable pour construire notre modèle
+ 
+```{r}
+
+## Visualisation du modèle de regression linéaire multiple toutes variables 
+
+model0 = lm(maxO3~., data = df_ozone_na_train[,-23])
+
+summary(model0)
+
+mae = mean(abs(predict(model0,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))   ## calcul du mae
+
+mse = mean((predict(model0,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)    ## calcul du mse
+
+mae
+
+mse
+```
+
+############################################################ Question 1.a ####################################################
+
+
+```{r}
+
+## modèle de rregression linéaire sur les variables séletionnées
+
+model1 = lm(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx,data = df_ozone_na_train[,-23])
+
+summary(model1)
+
+mae = mean(abs(predict(model1,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(model1,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 12.79859
+
+mse
+
+## [1] 253.2521
+```
+
+```{r}
+
+## modèle de Random Forest avec les variables sélectionnées
+
+model2 = randomForest(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx,data = df_ozone_na_train[,-23],ntree = 500)
+
+summary(model2)
+
+mae = mean(abs(predict(model2,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(model2,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 11.65642
+
+mse
+
+## [1] 219.7956
+```
+
+```{r}
+## Random Forest sur toutes les variables du modèle
+
+modele3 = randomForest(maxO3~.,data = df_ozone_na_train[,-23],importance=TRUE,ntree = 500)
+
+summary(modele3)
+
+mae = mean(abs(predict(modele3,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(modele3,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+mse
+```
+```{r}
+## Visualisation des variables importantes
+
+varImpPlot(model2)
+```
+
+
+
+```{r}
+
+rf = RFTrainer$new()
+
+gst = GridSearchCV$new(trainer = rf, parameters = list(n_estimators = c(50,100,150),
+                                                        max_depth = c(5,2,10)),n_folds = 3, 
+                       scoring = c('rmse','mae','mse'))
+
+gst$fit(df_ozone_na_train[,-23],"maxO3")
+
+```
+
+
+
+
+
+```{r}
+
+rf <- RFTrainer$new()
+gst <-GridSearchCV$new(trainer = rf,
+                      parameters = list(n_estimators = c(100),
+                                        max_depth = c(5,2,10)),
+                                        n_folds = 3,
+                                        scoring = c('mae'))
+data("iris")
+gst$fit(iris[,-5], "Petal.Width")
+gst$best_iteration()
+```
+
+
+
+
+
+```{r}
+## Modèle de boosting généralisé sur toutes les variables
+
+set.seed(1)
+
+modele4 = gbm(maxO3~.,data = df_ozone_na_train[,-23],distribution = "gaussian",interaction.depth=4,
+              
+              shrinkage = 0.02,n.trees=500,cv.folds=5)
+
+mae = mean(abs(predict(modele4,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(modele4,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+mse
+
+gbm.perf(modele4,method = "cv")
+```
+
+
+```{r}
+## modèle de boosting sur les variables sélectonnées
+
+
+set.seed(1)
+
+modele5 = gbm(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx, data = df_ozone_na_train[,-23],
+              distribution = "gaussian",interaction.depth=6,
+              shrinkage = 0.02,n.trees=600,cv.folds=5)
+
+mae = mean(abs(predict(modele5,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(modele5,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 11.89644
+
+mse
+
+## [1] 222.8151
+
+gbm.perf(modele5,method = "cv")
+
+```
+
+```{r}
+## Modèle de bagging sur les variables sélectionnée
+
+set.seed(1)
+
+model_bag = bagging(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx,data = df_ozone_na_train[,-23], control= rpart.control(minsplit=2, cp=0,xval=0),
+                    nbagg=500,coob=TRUE )
+
+mae = mean(abs(predict(model_bag,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(model_bag,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+mse
+```
+
+
+
+
+
+```{r}
+## Visualisation des variables importantes du modèle de bagging
+
+VI = varImp(model_bag)
+
+barplot(VI$Overall,names.arg = row.names(VI),horiz = FALSE,col = 'steelblue', xlab = 'Variable_Importante')
+```
+
+```{r, echo=FALSE}
+
+train_control = trainControl(method = 'cv', number = 5,search = "grid")
+
+set.seed(50)
+
+gbmgrid = expand.grid(max_depth = c(6,5,10),nrounds = (1:10)*50, eta = c(0.1,0.01,0.3), gamma = 0,
+                      min_child_weight=1,colsample_bytree=0.6,subsample=1)
+
+model_xgb = train(maxO3~.,data = df_ozone_na[,-23], method = "glm", family='binomial',trControl = train_control, tuneGrid = gbmgrid,verbose=0)
+```
+
+
+```{r}
+
+mae = mean(abs(predict(model_xgb,df_ozone_na_test[,-23])-df_ozone_na_test[,1]))
+
+mse = mean((predict(model_xgb,df_ozone_na_test[,-23])-df_ozone_na_test[,1])^2)
+
+mae
+
+mse
+```
+
+```{r}
+
+set.seed(0)
+
+data_train = df_ozone_na_train[,c("maxO3","T6","T12","Ne6","Ne12","Ne15","Vdir6","Vvit6","Vdir9",
+          "Vvit9","Vdir12","Vdir15","Vvit15","Vdir18","Vvit18","Vx")]
+
+data_test = df_ozone_na_test[,c("maxO3","T6","T12","Ne6","Ne12","Ne15","Vdir6","Vvit6","Vdir9",
+          "Vvit9","Vdir12","Vdir15","Vvit15","Vdir18","Vvit18","Vx")]
+
+train_x = data.matrix(data_train[,-1])
+
+train_y = df_ozone_na_train$maxO3
+
+
+test_x = data.matrix(data_test[,-1])
+
+test_y = df_ozone_na_test$maxO3
+
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+
+xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+
+#define watchlist and param
+
+watchlist = list(train=xgb_train, test=xgb_test)
+
+param <- list(max_depth = 2, eta = 0.2, verbose = 0, nthread = 2,
+              objective = "reg:squarederror", eval_metric = "mae",lambda=0.1)
+
+#fit XGBoost model and display training and testing data at each round
+
+model = xgb.train(param,data = xgb_train, nrounds = 68, watchlist=watchlist)
+
+## mae
+
+# 11.526850 
+
+##mse
+
+# 219.63
+
+```
+
+#################################################### Question 1.b #######################################################
+
+
+
+
+
+```{r}
+
+model1 = lm(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx+maxO3v,data = df_ozone_na_train)
+
+summary(model1)
+
+mae = mean(abs(predict(model1,df_ozone_na_test)-df_ozone_na_test[,1]))
+
+mse = mean((predict(model1,df_ozone_na_test)-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 10.27038
+
+mse
+
+## 168.7217
+```
+
+
+```{r}
+##final = xgboost(data = xgb_train, max.depth = 4, nrounds = 30, verbose = 0)
+
+set.seed(0)
+
+model2 = randomForest(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx+maxO3v,data = df_ozone_na_train,ntree = 500)
+
+mae = mean(abs(predict(model2,df_ozone_na_test)-df_ozone_na_test[,1]))
+
+mse = mean((predict(model2,df_ozone_na_test)-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 9.517396
+
+mse
+
+## [1] 151.2621
+```
+
+```{r}
+
+## variable importante
+
+varImpPlot(model2)
+```
+
+
+
+```{r}
+set.seed(1)
+
+modele5 = gbm(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx+maxO3v, data = df_ozone_na_train,
+              distribution = "laplace",interaction.depth=4,
+              shrinkage = 0.02,n.trees=600,cv.folds=5)
+
+mae = mean(abs(predict(modele5,df_ozone_na_test)-df_ozone_na_test[,1]))
+
+mse = mean((predict(modele5,df_ozone_na_test)-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 9.232696
+
+mse
+
+## [1] 141.5671
+
+```
+```{r}
+barplot(varImp(modele5)$Overall,names.arg = row.names(varImp(modele5)),horiz = FALSE,col = 'steelblue', xlab = 'Variable_Importante')
+```
+
+
+
+
+```{r}
+set.seed(1)
+
+model_bag = bagging(maxO3~T6+T12+Ne6+Ne12+Ne15+Vdir6+Vvit6+Vdir9+
+          Vvit9+Vdir12+Vdir15+Vvit15+Vdir18+Vvit18+Vx+maxO3v,data = df_ozone_na_train, 
+                control= rpart.control(minsplit=2, cp=0,xval=0),
+                    nbagg=500,coob=TRUE )
+
+mae = mean(abs(predict(model_bag,df_ozone_na_test)-df_ozone_na_test[,1]))
+
+mse = mean((predict(model_bag,df_ozone_na_test)-df_ozone_na_test[,1])^2)
+
+mae
+
+## [1] 9.352022
+
+mse
+
+## [1] 150.3526
+```
+
+
+
+```{r}
+
+set.seed(0)
+
+data_train = df_ozone_na_train[,c("maxO3","T6","T12","Ne6","Ne12","Ne15","Vdir6","Vvit6","Vdir9",
+          "Vvit9","Vdir12","Vdir15","Vvit15","Vdir18","Vvit18","Vx","maxO3v")]
+
+data_test = df_ozone_na_test[,c("maxO3","T6","T12","Ne6","Ne12","Ne15","Vdir6","Vvit6","Vdir9",
+          "Vvit9","Vdir12","Vdir15","Vvit15","Vdir18","Vvit18","Vx","maxO3v")]
+
+train_x = data.matrix(data_train[,-1])
+
+train_y = df_ozone_na_train$maxO3
+
+
+test_x = data.matrix(data_test[,-1])
+
+test_y = df_ozone_na_test$maxO3
+
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+
+xgb_test = xgb.DMatrix(data = test_x, label = test_y)
+
+#define watchlist and param
+
+watchlist = list(train=xgb_train, test=xgb_test)
+
+param <- list(max_depth = 2, eta = 0.2, verbose = 0, nthread = 2,
+              objective = "reg:squarederror", eval_metric = "mae",lambda=0.2)
+
+#fit XGBoost model and display training and testing data at each round
+
+model = xgb.train(param,data = xgb_train, nrounds = 100, watchlist=watchlist)
+
+## mae
+
+# 9.270655
+
+##mse
+
+# [1] 144.7209
+```
+
+
+######################################################### Question 2 #######################################################
+
+
+```{r}
+ozone= ts(df_ozone_na$maxO3v,start = c(1995,4),end = c(2002,9), frequency = 12)
+
+dygraph(ozone)
+```
+
+
+```{r}
+
+ACF_PACF(serie=ozone,
+         nlag=40,
+         titre="ACF Ozone",
+         affich_PACF=TRUE)
+plot(acf(ozone,lag.max = 40,plot=FALSE),ylim=c(-1,1))
+```
+
+
+```{r}
+
+df_ozone_diff = diff(ozone,lag=1,differences = 1)
+
+ACF_PACF(serie=df_ozone_diff,
+         nlag=40,
+         titre="ACF Ozone",
+         affich_PACF=TRUE)
+
+plot(acf(df_ozone_diff,lag.max = 40,plot=FALSE),ylim=c(-1,1))
+```
+
+
+
+```{r}
+## représentation graphique de la série différentiée
+
+dygraph(df_ozone_diff)
+```
+
+
+
+
+```{r}
+
+## modèle sarima(1,0,1)(0,1,1)
+
+modele_ozone = arima(df_ozone_diff, order=c(1,0,1),list(order=c(0,1,1),period=12),include.mean=TRUE,method="CSS-ML")
+
+summary(modele_ozone)
+
+test_signif(modele_ozone)
+
+Box.test.2(modele_ozone$residuals,nlag=c(6,12,18,24,30,36,42),type="Ljung-Box",decim=5)
+
+shapiro.test(modele_ozone$residuals)
+```
+
+```{r}
+
+df_ozone_train=window(ozone,end=c(2001,12))
+
+df_ozone_test=window(ozone,start=c(2002,1))
+
+model0zone=Arima(df_ozone_train,order=c(1,1,1),list(order=c(0,1,1),period=12),include.mean=FALSE,method="CSS-ML")
+
+summary(model0zone)
+
+t_stat(model0zone)
+
+Box.test.2(model0zone$residuals,nlag=c(6,12,18,24,30,36,42),type="Ljung-Box",decim=5)
+
+shapiro.test(model0zone$residuals)
+
+```
+
+
+
+```{r}
+model3_ozone=forecast(model0zone,h=9,level=95)
+pred_train=model3_ozone$mean
+left_train=ts(model3_ozone$lower,start=c(2002,1),frequency=12)
+right_train=ts(model3_ozone$upper,start=c(2002,1),frequency=12)
+ts.plot(df_ozone_test,pred_train,left_train,right_train,xlab="time",ylab="Ozone",col=c(1,2,3,3),lty=c(1,1,2,2),lwd=c(3,3,2,2))
+legend("topleft",legend=c("Ozone","Ozone_pred"),col=c(1,2,3,3),lty=c(1,1),lwd=c(3,3))
+legend("topright",legend=c("int95%_inf","int95%_sup"),col=c(3,3),lty=c(2,2),lwd=c(2,2))
+```
+```{r}
+## indicateur de performance du model
+
+rmse=sqrt(mean((df_ozone_test-pred_train)^2))
+rmse
+mae = mean(abs(df_ozone_test-pred_train))
+mae
+mape=mean(abs(1-pred_train/df_ozone_test))*100
+mape
+```
+                                     ################################################################
+###################################################### ESSAI D'un autre modèle ############################################
+                                     ################################################################
+
+Dans cette partie nous avons essayer un modèle particulier. Il consiste à récupérer les résidus issus du modèle de bagging, et
+
+modéliser leur aspect temporelle via un SARIMA. Les résultats ne sont pas très mal.
+
+```{r}
+
+resid_ozone = df_ozone_na_test[,1] - predict(model_bag, df_ozone_na_test)  ## résidu du modèle bagging
+
+ozone = ts(resid_ozone,start = c(1995,4),end = c(2002,9), frequency = 12)
+
+df_ozone_train = window(ozone,end=c(2001,12))
+
+df_ozone_test = window(ozone,start=c(2002,1))
+
+model0zone = Arima(df_ozone_train,order=c(0,1,1),list(order=c(0,1,1),period=12),include.mean=FALSE,method="CSS-ML")
+
+summary(model0zone)
+
+t_stat(model0zone)
+
+Box.test.2(model0zone$residuals,nlag=c(6,12,18,24,30,36,42),type="Ljung-Box",decim=5)
+
+shapiro.test(model0zone$residuals)
+```
+
+```{r}
+model3_ozone=forecast(model0zone,h=9,level=95)
+pred_train=model3_ozone$mean
+left_train=ts(model3_ozone$lower,start=c(2002,1),frequency=12)
+right_train=ts(model3_ozone$upper,start=c(2002,1),frequency=12)
+ts.plot(df_ozone_test,pred_train,left_train,right_train,xlab="time",ylab="residus",col=c(1,2,3,3),lty=c(1,1,2,2),lwd=c(3,3,2,2))
+legend("topleft",legend=c("residus","residus_pred"),col=c(1,2,3,3),lty=c(1,1),lwd=c(3,3))
+legend("topright",legend=c("int95%_inf","int95%_sup"),col=c(3,3),lty=c(2,2),lwd=c(2,2))
+```
+
+```{r}
+rmse=sqrt(mean((df_ozone_test-pred_train)^2))
+rmse
+mae = mean(abs(df_ozone_test-pred_train))
+mae
+mape=mean(abs(1-pred_train/df_ozone_test))*100
+mape
+```
+
